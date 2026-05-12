@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: fintrack_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: fintrack_user
+      POSTGRES_PASSWORD: fintrack_password
+      POSTGRES_DB: fintrack_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - fintrack_pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+volumes:
+  fintrack_pgdata:
