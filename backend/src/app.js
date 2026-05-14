@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import authRoutes from "./routes/auth.routes.js";
 
 const app = express();
 
@@ -18,6 +19,9 @@ app.get("/health", (_req, res) => {
     message: "FinTrack backend is running",
   });
 });
+
+// ── API Routes ───────────────────────────────────────────────────────────────
+app.use("/api/auth", authRoutes);
 
 // ── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((_req, res) => {

@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS users (
     full_name       VARCHAR(100)    NOT NULL,
     email           VARCHAR(255)    NOT NULL UNIQUE,
     password_hash   TEXT            NOT NULL,           -- bcrypt/argon2 hash, never plain text
+    role            VARCHAR(20)     NOT NULL DEFAULT 'USER'
+                                    CHECK (role IN ('USER', 'ADMIN')),
     phone           VARCHAR(20),
     is_active       BOOLEAN         NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -39,6 +41,7 @@ COMMENT ON TABLE  users                IS 'Registered FinTrack users. Central ta
 COMMENT ON COLUMN users.id             IS 'UUID primary key, auto-generated.';
 COMMENT ON COLUMN users.email          IS 'Must be unique across all users. Used for login.';
 COMMENT ON COLUMN users.password_hash  IS 'Hashed password. Never store plain text passwords.';
+COMMENT ON COLUMN users.role           IS 'USER (default) or ADMIN. Controls access to privileged routes.';
 COMMENT ON COLUMN users.is_active      IS 'FALSE = soft-deleted or banned user.';
 
 
