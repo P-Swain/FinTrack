@@ -2,9 +2,11 @@ import { z } from "zod";
 
 // Shared fields for both deposit and withdraw
 const baseTransactionSchema = z.object({
-  account_id: z
-    .string({ required_error: "account_id is required" })
-    .uuid("account_id must be a valid UUID"),
+  // External API now accepts account_number, not the internal UUID.
+  // 12-digit string validated with a regex — rejects anything that isn't exactly 12 digits.
+  account_number: z
+    .string({ required_error: "account_number is required" })
+    .regex(/^\d{12}$/, "account_number must be a 12-digit number"),
 
   // z.coerce.number() accepts both numeric 500 and string "500" from Postman form bodies
   amount: z.coerce

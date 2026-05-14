@@ -108,3 +108,45 @@ export const getAccountById = async (req, res, next) => {
     next(error);
   }
 };
+
+// ── GET /api/accounts/number/:account_number ──────────────────────────────────
+// User-facing lookup by the human-readable 12-digit account number.
+// This route is mounted BEFORE /:id in account.routes.js so Express doesn't
+// misinterpret "number" as an :id segment.
+export const getAccountByNumber = async (req, res, next) => {
+  try {
+    const userId        = req.user.id;                  // from JWT — always trusted
+    const accountNumber = req.params.account_number;    // from URL — untrusted until validated
+
+    // Validate format in-controller (Zod is not applied to URL params here)
+    if (!/^\d{12}$/.test(accountNumber)) {
+      return res.status(400).json({ message: "Invalid account number" });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT id, user_id, account_number, account_type,
+              balance, currency, status, created_at
+       FROM accounts
+       WHERE account_number = $1`,
+      [accountNumber]
+    );
+
+    // 1. Account not found
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Account not found" });
+    }
+
+    const account = rows[0];
+
+    // 2. Ownership check — same pattern as getAccountById
+    if (account.user_id !== userId) {
+      return res.status(403).json({ message: "Not your account" });
+    }
+
+    // 3. Ownership confirmed — return the account
+    return res.status(200).json({ account });
+  } catch (error) {
+    next(error);
+  }
+};
+
