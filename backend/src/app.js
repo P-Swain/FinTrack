@@ -4,6 +4,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import authRoutes from "./routes/auth.routes.js";
 import accountRoutes from "./routes/account.routes.js";
+import transactionRoutes from "./routes/transaction.routes.js";
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.get("/health", (_req, res) => {
 // ── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountRoutes);
+app.use("/api/transactions", transactionRoutes);
 
 // ── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((_req, res) => {
