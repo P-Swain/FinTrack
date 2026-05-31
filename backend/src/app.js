@@ -5,6 +5,7 @@ import morgan from "morgan";
 import authRoutes from "./routes/auth.routes.js";
 import accountRoutes from "./routes/account.routes.js";
 import transactionRoutes from "./routes/transaction.routes.js";
+import transferRoutes from "./routes/transfer.routes.js";
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.get("/health", (_req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/transactions", transactionRoutes);
+app.use("/api/transfers", transferRoutes);
 
 // ── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((_req, res) => {
