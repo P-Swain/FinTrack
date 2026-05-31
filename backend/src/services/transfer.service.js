@@ -33,6 +33,12 @@ export async function transferFunds({
   // Acquire a dedicated connection that we hold across the entire transaction
   const client = await pool.connect();
 
+  // Hoisted outside the try block so the catch block can safely reference them
+  // when logging to failed_transactions (sender/receiver may still be undefined
+  // if the error occurred before Step 3 — the catch uses optional chaining).
+  let sender;
+  let receiver;
+
   try {
     await client.query("BEGIN");
 
@@ -66,8 +72,9 @@ export async function transferFunds({
     );
 
     // ── Step 3: Validate existence ────────────────────────────────────────────
-    const sender   = lockedAccounts.find((a) => a.id === from_account_id);
-    const receiver = lockedAccounts.find((a) => a.id === to_account_id);
+    // Assigned to the outer-scoped variables so catch can reference them safely.
+    sender   = lockedAccounts.find((a) => a.id === from_account_id);
+    receiver = lockedAccounts.find((a) => a.id === to_account_id);
 
     if (!sender) {
       const err = new Error("Sender account not found");
@@ -194,14 +201,50 @@ export async function transferFunds({
       isDuplicate: false,
     };
   } catch (error) {
-    // ── Rollback: undo every change made since BEGIN ──────────────────────────
-    await client.query("ROLLBACK");
+    // ── Fix 2: Rollback wrapped in its own try/catch ──────────────────────────
+    // If ROLLBACK itself throws (e.g. network drop), we still want to:
+    //   a) attempt failure logging, and
+    //   b) rethrow the ORIGINAL error, not the rollback error.
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("ROLLBACK failed:", rollbackError.message);
+    }
+
+    // ── Fix 1: Concurrent idempotency — handle 23505 unique violation ─────────
+    // Race condition: two requests with the same idempotency_key both pass the
+    // initial check (Step 1) before either inserts. The slower one hits a
+    // unique_violation (code 23505) on transactions.reference_id at Step 9.
+    // Instead of surfacing a 500, we fetch the row the winner already inserted
+    // and return it as an idempotent duplicate — exactly the same result the
+    // caller would have received had they not raced.
+    // We do NOT log to failed_transactions for this case — it is not a failure.
+    if (error.code === "23505") {
+      try {
+        const existing = await pool.query(
+          "SELECT * FROM transactions WHERE reference_id = $1",
+          [idempotency_key]
+        );
+        if (existing.rows.length > 0) {
+          return { transaction: existing.rows[0], isDuplicate: true };
+        }
+      } catch (fetchError) {
+        console.error("Failed to fetch existing transaction after 23505:", fetchError.message);
+      }
+      // If fetch also failed, fall through to normal error handling below
+    }
 
     // ── Log failure using pool (not client) ───────────────────────────────────
     // After ROLLBACK the client's session state is reset/potentially broken.
     // Using pool.query() gets a fresh, clean connection from the pool that is
-    // completely independent of the failed transaction, guaranteeing the failure
-    // log is written even if the client is in an error state.
+    // completely independent of the failed transaction.
+    //
+    // Fix 2 (failed_transactions FK safety): failed_transactions has FK columns
+    // for from_account_id and to_account_id that reference accounts(id).
+    // If the error happened before Step 3 (account lookup), sender/receiver are
+    // still undefined — inserting the raw UUID would violate the FK if that account
+    // doesn't exist. Using sender?.id and receiver?.id ensures we only pass UUIDs
+    // that we *know* the DB returned (i.e. they exist), and null otherwise.
     try {
       await pool.query(
         `INSERT INTO failed_transactions
@@ -209,8 +252,8 @@ export async function transferFunds({
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           userId,
-          from_account_id ?? null,
-          to_account_id   ?? null,
+          sender?.id   ?? null,
+          receiver?.id ?? null,
           amount,
           error.message || "Unknown error",
           error.code    || "UNKNOWN",
