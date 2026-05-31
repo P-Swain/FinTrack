@@ -169,10 +169,31 @@ export const getTransactionHistory = async (req, res, next) => {
       to_date,
     } = req.query;
 
-    const page  = Math.max(1, parseInt(req.query.page,  10) || 1);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const offset = (page - 1) * limit;
 
+    const allowedTransactionTypes = ["deposit", "withdrawal", "transfer", "refund"];
+
+    if (transaction_type && !allowedTransactionTypes.includes(transaction_type)) {
+      return res.status(400).json({
+        message: "transaction_type must be one of: deposit, withdrawal, transfer, refund",
+      });
+    }
+
+    const isValidDate = (value) => !Number.isNaN(Date.parse(value));
+
+    if (from_date && !isValidDate(from_date)) {
+      return res.status(400).json({
+        message: "from_date must be a valid date",
+      });
+    }
+
+    if (to_date && !isValidDate(to_date)) {
+      return res.status(400).json({
+        message: "to_date must be a valid date",
+      });
+    }
     // account_number is required
     if (!account_number || !/^\d{12}$/.test(account_number)) {
       return res.status(400).json({
@@ -266,7 +287,7 @@ export const getTransactionHistory = async (req, res, next) => {
       ${filterClause}
     `;
     const { rows: countRows } = await pool.query(countQuery, countParams);
-    const total       = parseInt(countRows[0].total, 10);
+    const total = parseInt(countRows[0].total, 10);
     const total_pages = Math.ceil(total / limit);
 
     return res.status(200).json({
