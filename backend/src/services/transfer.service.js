@@ -71,6 +71,27 @@ export async function transferFunds({
       [firstId, secondId]
     );
 
+    // ── Step 2b: Post-lock idempotency re-check ───────────────────────────────
+    // Why a second check here?
+    //   Step 1 ran before we held any locks. Two concurrent requests with the
+    //   same idempotency_key can both pass Step 1 (both see zero rows), then
+    //   both queue on the FOR UPDATE above. When the first request commits and
+    //   releases its lock, the second request unblocks — but now the committed
+    //   transaction row exists. Without this re-check the second request would
+    //   continue into balance/status/ownership validation and fail with
+    //   "Insufficient balance" (the sender's balance was already deducted).
+    //   By re-reading reference_id here — on the same client, inside the same
+    //   open transaction — we catch that case and return the original result.
+    const postLockIdempotencyCheck = await client.query(
+      "SELECT * FROM transactions WHERE reference_id = $1",
+      [idempotency_key]
+    );
+
+    if (postLockIdempotencyCheck.rows.length > 0) {
+      await client.query("COMMIT");
+      return { transaction: postLockIdempotencyCheck.rows[0], isDuplicate: true };
+    }
+
     // ── Step 3: Validate existence ────────────────────────────────────────────
     // Assigned to the outer-scoped variables so catch can reference them safely.
     sender   = lockedAccounts.find((a) => a.id === from_account_id);
