@@ -24,8 +24,8 @@ import pool from "../config/db.js";
 //
 export async function transferFunds({
   userId,
-  from_account_id,
-  to_account_id,
+  from_account_number,
+  to_account_number,
   amount,
   description,
   idempotency_key,
@@ -58,17 +58,17 @@ export async function transferFunds({
     }
 
     // ── Step 2: Lock both account rows in deterministic order ─────────────────
-    // Sorting IDs before locking means two concurrent transfers between the same
-    // pair of accounts always lock in the same order, preventing deadlocks.
-    const [firstId, secondId] = [from_account_id, to_account_id].sort();
+    // Sorting by account_number before locking prevents deadlocks when two
+    // concurrent transfers involve the same pair of accounts in opposite directions.
+    const [firstNum, secondNum] = [from_account_number, to_account_number].sort();
 
     const { rows: lockedAccounts } = await client.query(
       `SELECT id, user_id, status, balance, account_number
        FROM accounts
-       WHERE id IN ($1, $2)
-       ORDER BY id
+       WHERE account_number IN ($1, $2)
+       ORDER BY account_number
        FOR UPDATE`,
-      [firstId, secondId]
+      [firstNum, secondNum]
     );
 
     // ── Step 2b: Post-lock idempotency re-check ───────────────────────────────
@@ -93,9 +93,10 @@ export async function transferFunds({
     }
 
     // ── Step 3: Validate existence ────────────────────────────────────────────
-    // Assigned to the outer-scoped variables so catch can reference them safely.
-    sender   = lockedAccounts.find((a) => a.id === from_account_id);
-    receiver = lockedAccounts.find((a) => a.id === to_account_id);
+    // Resolve by account_number (user-facing). Internal UUIDs (sender.id /
+    // receiver.id) are used for all subsequent DB writes — never exposed back.
+    sender   = lockedAccounts.find((a) => a.account_number === from_account_number);
+    receiver = lockedAccounts.find((a) => a.account_number === to_account_number);
 
     if (!sender) {
       const err = new Error("Sender account not found");
@@ -144,11 +145,12 @@ export async function transferFunds({
     }
 
     // ── Step 7: Deduct from sender ────────────────────────────────────────────
+    // Use the resolved internal UUID (sender.id) — never the account_number
     await client.query(
       `UPDATE accounts
        SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP
        WHERE id = $2`,
-      [amount, from_account_id]
+      [amount, sender.id]
     );
 
     // ── Step 8: Credit receiver ───────────────────────────────────────────────
@@ -156,7 +158,7 @@ export async function transferFunds({
       `UPDATE accounts
        SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP
        WHERE id = $2`,
-      [amount, to_account_id]
+      [amount, receiver.id]
     );
 
     // ── Step 9: Insert transaction record ─────────────────────────────────────
@@ -174,8 +176,8 @@ export async function transferFunds({
        RETURNING id, from_account_id, to_account_id, transaction_type,
                  amount, currency, status, description, reference_id, created_at`,
       [
-        from_account_id,
-        to_account_id,
+        sender.id,
+        receiver.id,
         userId,
         amount,
         description ?? "Transfer",

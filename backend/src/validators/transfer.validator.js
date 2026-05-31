@@ -1,15 +1,17 @@
 import { z } from "zod";
 
+const ACCOUNT_NUMBER_REGEX = /^\d{12}$/;
+
 // ── Transfer Schema ───────────────────────────────────────────────────────────
 export const transferSchema = z
   .object({
-    from_account_id: z
-      .string({ required_error: "from_account_id is required" })
-      .uuid("from_account_id must be a valid UUID"),
+    from_account_number: z
+      .string({ required_error: "from_account_number is required" })
+      .regex(ACCOUNT_NUMBER_REGEX, "from_account_number must be a 12-digit number"),
 
-    to_account_id: z
-      .string({ required_error: "to_account_id is required" })
-      .uuid("to_account_id must be a valid UUID"),
+    to_account_number: z
+      .string({ required_error: "to_account_number is required" })
+      .regex(ACCOUNT_NUMBER_REGEX, "to_account_number must be a 12-digit number"),
 
     // z.coerce.number() accepts both numeric 1000 and string "1000" from Postman bodies
     amount: z.coerce
@@ -26,7 +28,7 @@ export const transferSchema = z
       .uuid("idempotency_key must be a valid UUID"),
   })
   // Cross-field refinement: sender and receiver must be different accounts
-  .refine((data) => data.from_account_id !== data.to_account_id, {
-    message: "from_account_id and to_account_id must not be the same",
-    path: ["to_account_id"],
+  .refine((data) => data.from_account_number !== data.to_account_number, {
+    message: "from_account_number and to_account_number must not be the same",
+    path: ["to_account_number"],
   });

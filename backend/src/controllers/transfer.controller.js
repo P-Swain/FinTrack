@@ -6,13 +6,13 @@ export const transferFundsController = async (req, res, next) => {
     // userId always comes from the verified JWT — never from req.body
     const userId = req.user.id;
 
-    const { from_account_id, to_account_id, amount, description, idempotency_key } =
+    const { from_account_number, to_account_number, amount, description, idempotency_key } =
       req.body;
 
     const result = await transferFunds({
       userId,
-      from_account_id,
-      to_account_id,
+      from_account_number,
+      to_account_number,
       amount,
       description,
       idempotency_key,
