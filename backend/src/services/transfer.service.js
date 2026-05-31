@@ -95,7 +95,7 @@ export async function transferFunds({
     // ── Step 3: Validate existence ────────────────────────────────────────────
     // Resolve by account_number (user-facing). Internal UUIDs (sender.id /
     // receiver.id) are used for all subsequent DB writes — never exposed back.
-    sender   = lockedAccounts.find((a) => a.account_number === from_account_number);
+    sender = lockedAccounts.find((a) => a.account_number === from_account_number);
     receiver = lockedAccounts.find((a) => a.account_number === to_account_number);
 
     if (!sender) {
@@ -197,8 +197,10 @@ export async function transferFunds({
         userId,
         newTransaction.id,
         JSON.stringify({
-          from_account_id,
-          to_account_id,
+          from_account_id: sender.id,
+          to_account_id: receiver.id,
+          from_account_number: sender.account_number,
+          to_account_number: receiver.account_number,
           amount,
           status: "completed",
         }),
@@ -206,7 +208,7 @@ export async function transferFunds({
           idempotency_key,
           is_suspicious: isSuspicious,
           from_account_number: sender.account_number,
-          to_account_number:   receiver.account_number,
+          to_account_number: receiver.account_number,
         }),
       ]
     );
@@ -219,7 +221,7 @@ export async function transferFunds({
         ...newTransaction,
         is_suspicious: isSuspicious,
         from_account_number: sender.account_number,
-        to_account_number:   receiver.account_number,
+        to_account_number: receiver.account_number,
       },
       isDuplicate: false,
     };
@@ -275,11 +277,11 @@ export async function transferFunds({
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           userId,
-          sender?.id   ?? null,
+          sender?.id ?? null,
           receiver?.id ?? null,
           amount,
           error.message || "Unknown error",
-          error.code    || "UNKNOWN",
+          error.code || "UNKNOWN",
         ]
       );
     } catch (logError) {
