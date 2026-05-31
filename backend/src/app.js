@@ -6,6 +6,7 @@ import authRoutes from "./routes/auth.routes.js";
 import accountRoutes from "./routes/account.routes.js";
 import transactionRoutes from "./routes/transaction.routes.js";
 import transferRoutes from "./routes/transfer.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/transfers", transferRoutes);
+app.use("/api/admin", adminRoutes);
 
 // ── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((_req, res) => {

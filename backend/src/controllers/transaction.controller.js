@@ -155,3 +155,129 @@ export const withdraw = async (req, res, next) => {
     next(error);
   }
 };
+
+// ── GET /api/transactions ─────────────────────────────────────────────────────
+export const getTransactionHistory = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    // ── Query param extraction ────────────────────────────────────────────────
+    const {
+      account_number,
+      transaction_type,
+      from_date,
+      to_date,
+    } = req.query;
+
+    const page  = Math.max(1, parseInt(req.query.page,  10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    const offset = (page - 1) * limit;
+
+    // account_number is required
+    if (!account_number || !/^\d{12}$/.test(account_number)) {
+      return res.status(400).json({
+        message: "account_number is required and must be exactly 12 digits",
+      });
+    }
+
+    // ── Step 1: Resolve account_number → UUID and verify ownership ────────────
+    const { rows: accountRows } = await pool.query(
+      "SELECT id, user_id, account_number FROM accounts WHERE account_number = $1",
+      [account_number]
+    );
+
+    if (accountRows.length === 0) {
+      return res.status(404).json({ message: "Account not found" });
+    }
+
+    const account = accountRows[0];
+
+    if (account.user_id !== userId) {
+      return res.status(403).json({ message: "Not your account" });
+    }
+
+    const accountId = account.id;
+
+    // ── Step 2: Build dynamic filter clauses (parameterized only) ─────────────
+    // Start params with the two account-id references used in the WHERE clause
+    const params = [accountId, accountId];  // $1 = from side, $2 = to side
+
+    const filters = [];
+
+    if (transaction_type) {
+      params.push(transaction_type);
+      filters.push(`t.transaction_type = $${params.length}`);
+    }
+    if (from_date) {
+      params.push(from_date);
+      filters.push(`t.created_at >= $${params.length}`);
+    }
+    if (to_date) {
+      params.push(to_date);
+      filters.push(`t.created_at <= $${params.length}`);
+    }
+
+    const filterClause = filters.length ? `AND ${filters.join(" AND ")}` : "";
+
+    // ── Step 3: Main query with LEFT JOINs ────────────────────────────────────
+    // Why LEFT JOIN?
+    //   Deposits  → from_account_id IS NULL (no source account in our system)
+    //   Withdrawals → to_account_id IS NULL (no destination account in our system)
+    //   An INNER JOIN would drop those rows because the joined table has no match.
+    //   LEFT JOIN keeps the row and returns NULL columns for the missing side.
+    //
+    // Direction logic:
+    //   If this account is the FROM side → money left  → "debit"
+    //   If this account is the TO   side → money arrived → "credit"
+    const dataQuery = `
+      SELECT
+        t.id,
+        t.transaction_type,
+        t.amount,
+        t.currency,
+        t.status,
+        t.description,
+        t.reference_id,
+        t.created_at,
+        fa.account_number  AS from_account_number,
+        ta.account_number  AS to_account_number,
+        CASE
+          WHEN t.from_account_id = $1 THEN 'debit'
+          ELSE 'credit'
+        END AS direction
+      FROM transactions t
+      LEFT JOIN accounts fa ON fa.id = t.from_account_id
+      LEFT JOIN accounts ta ON ta.id = t.to_account_id
+      WHERE (t.from_account_id = $1 OR t.to_account_id = $2)
+      ${filterClause}
+      ORDER BY t.created_at DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+
+    params.push(limit, offset);
+    const { rows: transactions } = await pool.query(dataQuery, params);
+
+    // ── Step 4: COUNT query using same filters (without LIMIT/OFFSET) ─────────
+    const countParams = params.slice(0, params.length - 2); // drop limit & offset
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM transactions t
+      WHERE (t.from_account_id = $1 OR t.to_account_id = $2)
+      ${filterClause}
+    `;
+    const { rows: countRows } = await pool.query(countQuery, countParams);
+    const total       = parseInt(countRows[0].total, 10);
+    const total_pages = Math.ceil(total / limit);
+
+    return res.status(200).json({
+      page,
+      limit,
+      total,
+      total_pages,
+      transactions,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
